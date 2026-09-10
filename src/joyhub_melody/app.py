@@ -1,331 +1,22 @@
-#!/usr/bin/env python3
-from __future__ import annotations
+"""Tkinter application for JoyHub Melody Player."""
 
-import base64
 import json
 import os
 import socket
-import re
 import subprocess
-import sys
 import tempfile
-import zlib
 from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
-VIDEO_DIR = Path(os.environ.get("JOYHUB_VIDEO_DIR", str(Path.home() / "Videos")))
-SCRIPT_DIR = VIDEO_DIR / "MelodyScript"
-PLAYER = Path.home() / ".cache/melody-player/melody-ble-direct-engine.py"
-APP_VERSION = "v2.5.3"
-APP_NAME = f"JoyHub Melody Player {APP_VERSION}"
-PYTHON = Path(sys.executable)
-CONFIG = Path.home() / ".config/melody-player-ble-direct-gui.json"
-
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".avi", ".mov", ".webm", ".m4v"}
-
-VIBRATION_PATTERN_NAMES = (
-    "progressif3",
-    "regulier3",
-    "double",
-    "coeur",
-    "rafale5",
-    "pulse4",
-    "pulse6",
-    "pulse8",
-    "court_long",
-    "long_court",
-    "triple_sec",
-    "triple_large",
-    "vague4",
-    "vague6",
-    "escalier4",
-    "escalier6",
-    "syncopé",
-    "staccato",
-    "lent2",
-    "lent3",
-    "rafale3",
-    "rafale7",
-    "respire4",
-    "alterné",
-    "surprise",
+from .settings import *  # noqa: F403,F401
+from .engine import ensure_internal_engine
+from .funscript import (
+    convertir_original_en_vibration_temporairement,
+    find_script,
+    natural_key,
+    script_candidates_for_deletion,
 )
-
-VIDEO_TYPES = (
-    ("Vidéos", "*.mp4 *.mkv *.avi *.mov *.webm *.m4v"),
-    ("Tous les fichiers", "*"),
-)
-
-
-LANGUAGE = "fr"
-
-TRANSLATIONS = {
-    "Vidéos": "Videos",
-    "Tous les fichiers": "All files",
-    "Aucun script sélectionné": "No script selected",
-    "Choisis une vidéo pour commencer.": "Choose a video to begin.",
-    "Aucun": "None",
-    "VIBRATION FUNSCRIPT — clique ou glisse pour déplacer la vidéo": "VIBRATION FUNSCRIPT — click or drag to seek the video",
-    "Pause / Reprendre": "Pause / Resume",
-    "JoyHub Melody BLE direct — connexion mémorisée + schémas vibration + R4": "JoyHub Melody direct BLE — remembered connection + vibration patterns + R4",
-    "Sélection": "Selection",
-    "Vidéo": "Video",
-    "Parcourir": "Browse",
-    "Script": "Script",
-    "Réglages": "Settings",
-    "Vibration maximale": "Maximum vibration",
-    "Maintien à zéro": "Zero hold",
-    "Lissage": "Smoothing",
-    "Vibration minimale": "Minimum vibration",
-    "Amplification du funscript": "Funscript amplification",
-    "Amplification vibration": "Vibration amplification",
-    "Activer le contrôle PUMP / R4 (CONSTRICT)": "Enable PUMP / R4 control (CONSTRICT)",
-    "Contrôle PUMP / R4": "PUMP / R4 control",
-    "Ouvrir MPV en plein écran sur l’écran de droite": "Open MPV fullscreen on the right display",
-    "Activer le PUMP / aspiration Melody": "Enable Melody PUMP / suction",
-    "Durée du PUMP": "PUMP duration",
-    "Durée du relâchement": "Release duration",
-    "R4 répété toutes les": "Repeat R4 every",
-    "Pause minimale entre PUMP": "Minimum pause between PUMPs",
-    "Pause maximale entre PUMP": "Maximum pause between PUMPs",
-    "Schéma vibration 1": "Vibration pattern 1",
-    "Schéma vibration 2": "Vibration pattern 2",
-    "Schéma vibration 3": "Vibration pattern 3",
-    "Choisir aléatoirement parmi les 1 à 3 schémas sélectionnés": "Randomly choose among the 1 to 3 selected patterns",
-    "Supprimer la vidéo et ses funscripts à la fin ou en passant à la suivante": "Delete the video and its funscripts when finished or skipping to the next",
-    "Passer automatiquement à la vidéo suivante": "Automatically play the next video",
-    "▶  Lancer la vidéo": "▶  Play video",
-    "⏭  Lire le dossier": "⏭  Play folder",
-    "⏩  Vidéo suivante": "⏩  Next video",
-    "🧪  Test aspiration Melody 10 s": "🧪  Test Melody suction 10 s",
-    "■  Arrêter": "■  Stop",
-    "Choisis une vidéo avec son funscript": "Choose a video with its funscript",
-    "Aucune vidéo en lecture.": "No video is currently playing.",
-    "Durée de la vidéo inconnue.": "Unknown video duration.",
-    "Choisir une vidéo": "Choose a video",
-    "Funscript original trouvé. Conversion vibration automatique prête.": "Original funscript found. Automatic vibration conversion is ready.",
-    "Aucun MelodyScript correspondant.": "No matching MelodyScript.",
-    "MelodyScript introuvable": "MelodyScript not found",
-    "Python introuvable": "Python not found",
-    "Erreur du moteur intégré": "Embedded engine error",
-    "Erreur de lancement": "Launch error",
-    "Fichier introuvable": "File not found",
-    "La vidéo ou le MelodyScript n'existe plus.": "The video or MelodyScript no longer exists.",
-    "Erreur de conversion": "Conversion error",
-    "Aucune vidéo actuelle à passer.": "There is no current video to skip.",
-    "La vidéo actuelle n’est plus dans son dossier.": "The current video is no longer in its folder.",
-    "Aucune vidéo suivante disponible.": "No next video is available.",
-    "Passage à la vidéo suivante…": "Moving to the next video…",
-    "Vidéo introuvable": "Video not found",
-    "Choisis d’abord une vidéo valide.": "Choose a valid video first.",
-    "Erreur": "Error",
-    "La vidéo sélectionnée n’est plus dans le dossier.": "The selected video is no longer in the folder.",
-    "Aucune vidéo lisible": "No playable video",
-    "Aucune vidéo à partir de la sélection ne possède un funscript correspondant.": "No video from the selection onward has a matching funscript.",
-    "Toutes les vidéos du dossier ont été traitées.": "All videos in the folder have been processed.",
-    "La lecture du dossier est terminée.": "Folder playback is complete.",
-    "Terminé": "Done",
-    "Lecture terminée naturellement.": "Playback finished naturally.",
-    "Lecture fermée avant la fin : aucun fichier supprimé.": "Playback was closed before completion: no files were deleted.",
-    "Arrêt demandé… aucun fichier ne sera supprimé.": "Stop requested… no files will be deleted.",
-    "Contrôle MPV indisponible : socket IPC absent.": "MPV control unavailable: IPC socket missing.",
-    "Suppression partielle": "Partial deletion",
-    "Aucune vidéo suivante.": "No next video.",
-}
-
-def tr(text: str) -> str:
-    if LANGUAGE == "en":
-        return TRANSLATIONS.get(text, text)
-    return text
-
-def normalize_pattern(value: str) -> str:
-    """Return the engine sentinel regardless of the UI language."""
-    return "Aucun" if value in ("Aucun", "None") else value
-
-
-COLORS = {
-    "bg": "#111318",
-    "panel": "#191c22",
-    "panel_alt": "#20242c",
-    "border": "#2c313b",
-    "text": "#f2f4f8",
-    "muted": "#9aa3b2",
-    "accent": "#7c5cff",
-    "accent_hover": "#9278ff",
-    "success": "#39d98a",
-    "warning": "#ffb84d",
-    "danger": "#ff5c72",
-    "track": "#343a46",
-}
-
-
-
-ENGINE_BUNDLE = 'c-q~4+jbjClGr=GBBylv5a<R<;6)M}7TU`uscG&|BoC?9tXHE`rwAm->Mm5F>%t~SL!WuH-~HmZJ$|r9vtQt|Z^J*CFL6ZVr82XsKtL_;jNSH*h^oxU$jHdZxMkFnUp+1J?CE8cJmtv^Tig}bX|mn%Jg;-iCj~Dvb`wn>KBnv|HY<~Sl0}OG9$jW(5v2)Rq|o9xO3GWm(;2YiFqv@n`s}R_KQ1_%q)CEc*u%fDqojytA-vw_Ns)yyTZ9?=Ex)`-CqME6JM3SF*%fDH!u)Ei>0kf&-=n19Ngfps9~n<3Dd5Ax2p+IehtYpS@edobFv}kPT*$|pgU#WP9vcv*yuu#_Jxp%Wh||+7jCc+>&*xz>g}=Tni((O%SM0Pb7G?3~Zo&PxN8g_By*Wg5_h=~2V$K#19|75G{NJBSc#>v0{tJX)JTCxgm~5GImX>VBv-!hEpw_{|#|2NONU>Z_M3SEk=4=ry0O`C4<CqNw<>D#}0mVy+5w*_CY05$%k!m+z+;lpJw|u?;lmtZosp>Mw(jv_628%en<C(v>V;-z5PyP8~$6KeZ`WxC*%j6NubY@vPXF)J4i!$Ruz@qsg%?cJK2>?Wb=besvmR$h@<Xr#G?~+NBs-Krp4veFI{gA_2$-mQF{guHorE~QwkFJt1*1w3W^sn-Ak)=Rr-8a9}e-=QnSrltbifGQoOcr5r9Y>dH8fWlRyeRG#QF5i8?<IGgPLbUSl2e1rn1?^A_ut}={Wt=??~5N76CerCI{bFRVF8b*-C>rcnPh|v7`7|9m@)5lIxS&M|MIUA@L&Fog_k+N^M99kRkI_(2z&r-!y7(fBle%GMHQ<#xPgsM8{T9w0_*iPD5S?2XyoU`lxLZE(WC!`T>_kZahC(#4sWBPyVa}BUTqvnfNCacOG#?z=Lh^InsBkt_QeLQURK*r;jt#&&S+l|`4na=Q_y;CZBZm-3w@nVD=tEPp97pvUz5(k;j6vxkKY6rhv#n(&p`@$Kj)*TPdB$-_(S-Ao1@LG?VV>{)oy?91RC$3o*Z02>s^1SU!9#E9|y1T>2~$-;BfEY+r5(mcna_~_49u|JU<P-J3T%SJzfl}E*EEqhX=vM>(kRW-yNO&ntJZ;>esK2PJ;9APfp+!4Eb9^8W7zwhJ1Upe~450$Mo*I@{+ygaXP&N(ev%`VQ{kdTD%*m$N2QstG!KpI)wjbvv6~Of8fb59PHx%42QeJXS1&_w|8cjqQ~CB!TI6EMX<lO{~ZFvjqhKlbKdQ-r_A#w;pCb>ozoa{MW6mKkiWy}Gy_577q=i4J5SiYK2P8@oJA=8;qM&IO*jj!S@<+KoG`)Z35<GqSMc1&4Ry_LyWZZA4Y%2=R}79c@&EVsyk6A>-n8_Arn;N%bN2n~v*7jKKQ(tcP@}wnuCmAZ;ql?##bIlQP3o{II&{QAd31UbobA1Nb9jD&tnh)j)dN|4g*1w0+un%1>%PfK-lv7`^;!2-80X^W5PzzdTf-$Ux1E=}z4u~&cp1McLD*!@NV|6XEfd&UFRPKJX$fM~8fI&22_)wwOhG}Kq@Z{$qs(yE0<_x(C<|v{%%54HhIZ@Wa}(6R&r6uO!f;W-vz-b-nCeciFPqXTzyERvl+Sni(bmxJ{M_n1G&;km@4tL*bvBlZI`5jDhcC>|&!O|K-TAq(LS<G2ahhDUj!r-1i|uE|3uE>OARt&K7^}4j#)5BvDL@5_c>o%dHJz``>AZmHY}<s~bpgbvf14n-EKGLlASxVg!mH9*$Sr#<s%h-Dyx7`ld9mFxaT?TOfZ?vahW%!2%oopFUTh89UhK5JFb6mIl;@KWWzfztR&7DZBu^Vb?QwT%<E}`d&9)b9^WA*0HtDvT7ZR2K6s)LrM4z=lr*(a_$Ma?af!;Nlghgr%``ncRFWN*%4Ep1i*>}g;=l#YPhJZ#0+t%K<q~C6R$31t1`}VT6t@Yk<dcSCwf6r<&H#izj??sf^`+ciT`dRF0uGjW+Tf9`{GO1w5sW2{hme_3K3dLrjVQsK2n;Tm8k-?p129`z6+e!VRg$cLJL!eb24r{Z$2lX9QD5X3F`~PVlR4~+`w)~w=XUb=l7b5^W73mTHI~TmGekI|Yk62!0ea7Q(k@IPgkJv0u!=lFq->{+tng8xGP2)cLN8Sq)3helEUcix*a29Vod<2l}^yDe3m%M-{5va1aY+ACMU(JDg>Cega!^e5Z@FWYtq(WZ+nPUPIK)S9C`d8er)J&W!i>IZRr9bwyYP0DBfA&nXD4MY(EfnyPhMVyM=EtOV(xK-?3N{#EnwRtLJiP6~5)C)|f?VBM7EXFSHcK-mhzu{_5s*y*7XvP?L$JffOhHinHT`>NKs2mtk9~po3sffMyo`lWC2VRKmdFk|6pbFFi9n!-81ST=^UPTJUNutz>Z>tpo6=J;aoqt(CMNMx^sPV{ghQUunDqJrIf1*`LZb6-u=)Po5LSkPw9`1U0ow!~C$|qnb_U%!m;t0f*il_LyAo7s(qyXHR$!x@4HDs+$>v9SfYx%iXQLmIWrhn>?~?Iw8Wj8%77JaBQF1l*%3?Oy^?G1%gMQTQS+HPS3C<p)azo6#Jvp8*?-*Eq^AzL=7=UcVKFIF(Uatl~Qc<>`*V5&2dSSRb#LmfcLHcQ#aZmz*Y)q{8^NImYV)n#%1#DgrA2(o(f>qzqoTi^6Z^3rH;$2`GqxDy8)1a&4av>-nLBK%H;Qx@&C?S+Z&V<XeU>_=MM_2bupa#G_2U52}=Y#(9{%Q4he&74+AOC07ts>@>d`dXG@aHfpEYF)ijq*u)!?P}W`_i%)SNQZgmCFU_A;2IpB*2l&2jaPpvWtPG&$_ksRL%*10$XdA#?x-E0!ST=H?`h?geNwIw_>keJ5Qe3u4-H#V91zH@Fanw6*<!w;hz2VkN-_Sk-m*4mbEseJ9m4lEy4^PZ}T6gQPved^05%c{5HyqApMbk_Ev=Va~6RlqP=V5*=M!ATm#v*uPoZ(9&6d7_J|!*E>*1i(%3)t5Mo)h#|q9X012lqtjEJgpPi)T4Uc1Pz=G|Qvn{=2kooOd32vAEbU%+dUv#(NZ0s1W!t*jg#-}+O{!)zwAeF(;;U)S(7umy~a<*;E!8i7)_ZE3+7IF4dxe>(_@Cf6$oMW`6z=yTS4>pl;5KkW0?nzMGb|>T`9@*~mMTma=k#Iqg8gr5+QUr^Mi*AxBuHdu@Cf8xsRh~cvqR&u=O_Q9DN%g9ukcTrk-)6HWMA#o_Tn7PIbJ3PXIX%X$iyDZ;363Qd5u3W&Nd06J)3J!rXNJ44*IBmWq+&h}OFH#><{5KH|A07fPnpgnhJV@X#m&*#zIchm3W6w!iXiCbJf8Js=mnM1>k+w59V$`m3R?O`LsYz~U-f1q`C9go<cD7PkKO#ToB?m4m(ug>HyH<s2jV4~qH-m+L$%~`W#lB}u^<%>Xuk;rZJ5ZEUzYe9+xznr7CTL%N!K_-e!h-y|2pqM{SjSX>Y?0Y#ifx?!ZGhQ2=`Xui`_MCC9tmiwf8Fc{^aPN)PngJr~AJNF5a9U?!E4{0`qfTT*mMR2-U9KI8AMBmISRm$jT&vPC=Zepi2=hYBzKnL8u}7Xv1_}YBUeqg1G7{NzvHI*oNz#53S_aRGY+U&b!UnwePydbLdf74+f>denQ^A5j^I|d!b@s6b)=C6!lXMw9--gjD@9S4hm(1X5g;Ey{UM)8;a(PJsS3n$=@g~QA*k^S_!NBHBuE!2snL~byHHKw*M(kBlo|`0vNFvHr>0u<nBGq0{&>9M12B+`ul>Qu(o0WJftRwP?l`qQ3%VbXpSeMv3Rc70z+=I8hy&~V2x0n9=lB|7;{id!Yh=O7)AG|<$RIbEbyU5D^E_}8)-uH>y4_>pq+t@-Spo6nRC$i!XnM`ao6jE`R<LpUe%=Mlgh@sN?`+Y<I=-;YG*yslB1y!$CcdZD@xR4GwPc5vc=IAoi1W10ui8r7)OcAZy6^gLXj6vi)r4a{{EC(GwF3)2`~E!r-nhz9{bhUBxs$PfnACyDfx1c9Jx(E^YU_n`43(l)-sLImJ}+KNzx$Wvr?I|=BOJq>PGM0>(r%llQ+Rac^Vd>R}&?;$crpp@T|C#8#GDh<lL(7N@YA(Yp1sMJI@5<5s>$_!K#(kvWv9M&$#bR1-QnJ#O@>z!PqlY8heC!noT&!=kbdBA>)&qZo5$Iv**vAZ9nfUSuW{KlLNQ$QRAFLIa?NoLekx0@)%IUn!c;Tq1#FfR<)s>)ps;K<CmW=;;85n4f|}f=W+%0*P85G<wAX>5}8`H+Q~JaN6B)9R<r?x#2@y{kcg7Y14TGrBUHoD_xc_>y?bwWz`P{Y9NRQBAr%sgin~e7A8ATf&=t>=YD!a7&sq-Y+VT5y1gg3*RUdXz0;0>SS=xg<x&p}qC)+HVTt~b?bDAO}kbg!?&aP}+Et^!1x>En@i?;uGae8t<(v_alI3RX-nKf<0w_#ki2{u>#iKC25HAhVG9>kjf?Fh7<$aNC$jMGUhGt5fPPsla-*f7=Qc8YRJ|4AmiE8FyG9ea<=#5?ASv@GG`KtRhAl?j?hUQoiA!sjplX6-dFe#;oF`K9b=`N0Grlu3${o1{Z+I(;^cCPi=6Bdk&5BLfWmBm(3+FD$(Gb!8gX(P;-y+=hywe#7r1M`2=_{IjBOZ;dlIL@RE%Y6nGmKU|<QwA&4V=;WS<f1;$jIfOp|@m{ajuwEdnv!eSWzZ=Kl{BjyH9`iYQC*&XKX|K9HVP}}3JLToA<^(u2<_~|KbCGw3OFqH#H@g8&0{J}USrR?`DdWC|QYPptTupS@tfJY>rI`dt{!;n3j1#c&SOS0_b)p)LnQCY+aNOjQm)#W6MZaFh-HmFdkL<m@a#F&klk>a@V^G$FV-BQ<PKvFo@|AFq12sr|B&VLgLr&T2y}7{OCyeAjY3dyFuOI#e4xkXdyHNs*nq%h-G__cWxI$(fvylO14!nxW9Gn4Do=<?0C|g<o4bNp0f5{PKvjTAv&v-Bep(^H}{VrBq%ZfB$kVww6=j=k*6_E&d0z5t?#55`22~YzDT(tSVxgSunBr-U?YCWbADicJ_aYOe(6Dl1CLN(`2iV{>HzhOgSQ#Nqlyi{+7H7R2N9Iq~IC_GVH1~3SQwDqh<^@c50w6*4HOEoNmC5l=(LjP@YHJolh**TtWbM%2zs2MnX0ZSg1a9#^`*Nq4l-`vh79|6TTUB5f^3)GfV*bfowrh~14*@1oQPjS-%EiL#fkugFUT;M5S^)=MBiVvkuI*;NwQh|UGN@G&uBGY0N%Q2P-^}hHg$fB!j;p!AZ$AKlIvjzzSnA$NXwd!ZXj;m;!^3K>~)a)NHb{tLSytq!M_35F^3UqdZkt84+&`kS=NidHJE<Lq<L;8f%OW^U^3n3IiBc&*{%ojkqQM+n>o(Bdmwk^QC5=<)CaOnGZuY@OU*Gi~`&Vs=IlITVlYdSH2j(T4l^)xH?lmS$K*z2(`<(#b3NkDj6&8ul4RLX$yNObIooDquZ0Bh+ps!NwS46_FRknVLc!UV>Oz$_=>u7Qg?AZQN+IT&8iZP)W*{>F_E!>QBMcu7MM62wevZJ%9;rtoa$eGsiM*ZtlZ^Orz!p}em`;)(=#PHA#j?f~_)E%QLGg=%KyN(g5pEl-T+au&=NH|DxDgjD)?f2Krk%(1o9%<>`=Udrmei+_eD8u>5faw;E=xtbopFmD=ogF%!m%3=^LCIg`wjz3s#->NaRouQRJ_!)M2`t$gX=l0tlIbRGAi*b_LZ=z|;?T6^;r<of}@uf9YYjG@VK?xpb?p-xwE5`K-7U?7{UZrI+C8e&(gnZ01M!t>8hb!-KVBGfmB0_1(Mvb?$45ztmL>dvu$#n|0R2D2ahU+;+>&56g9NBP}CQ0Y$=@H2n<R6oJS-ft@sSz(yx?&R)U<!?l`!>KN^}BEVj_q@k2c$i8CHc(90MEY3(dn4E302w%rh?d)>hdae#F~YXJR(Bj^-wU-Ju4`+1HEF>f7=u}v9e^E;G_!^jKJMk9~6<e5oLtcmkA^O4Vn&lSJ`taEzRt?2Gf!8;a)j3at3rfz8-hSB$$#HX<A(SwaAT3MfhEE<`7=P&e=#27*#Qlr<az}k86$gX@m=HuoPvIblhCFDzV1MU^8iA$k1tov3hdSj8)3Tb(jZYkghRS&(wUPNhp;}H|X`D!u8&O?g>p>{j3?5&@)Ff&+Oimd!#s;v3DP6y7%v!(rPLc?>*ZXt#Ggp5`*qa@fKiB-fG;4<|ee7G$j#D(oCdB$or}0VNvB)*)+9sr3^glAqs`a<H=0#YZkhLS(Bx{Jd`nO-ar;Zn1d8(PkRku{_?M)lb+8#IoaA==#n;LcLvJdu>BT#wwjEeZKlZv-p562(~#}f^y{<r$hn~e%1V>eh~oq;G4D#4<q2rgWoo5cStlh=Zqhr@njDKkv>f3%CC)gdtXHOj<MLJtySx&P9v(x%m!}^rOEwQ<k;RE}m7~&)q7}4x--06!4>^~tOq8@*cI(w%#iqm8T474=tlJcNs=b~WTW!d-Qp7_SV39>C7o$czVMVM#IXLsMdcgka$;F%Vqy0CJ(2cskCbuNm_WI-sXXxYR?1e<&77VBY*#>q?pT!${XGhgFeatLQggt3sV2tZmfcb33(VN5KG8zbXsEAEThnc;SV(>tL;*Ex!SPaor`))rg4`^cAT;O82e8oeMJ_W2eo@0SfJiEqnw`R5}+3torW!_9%{+gUR>Q3F}EVCxfTW3&{`JLy&@KzdNydlawFe5h8ckf5rvljWYVE4u`2<(`{QKR$VGQQww(BZa$m3@Y)NgUqk+Y*$Dzx}Mv^XEK%_#eogSUQ3*jCHa%-5v+F%p*WA$D8nFoRjnSd`G(m<j9hpHfiH_<wKdKO$t-xAXP6%Yo_)oHx6cRvzL0xk0ujIHh-qrTT+Jj+aPZNHW2XC0;N7+nJ#3kQ&oBJPe7FC3)p$KhYASs2D@7RmDsr#jh+^m5SYRCAtZ??Q!b5MK#L9akyH`Nyk;O#_3OI71>4B|)C!lA!@I8o+m!S!CS<4Q)}mXMeW9}9YSGV@)Ud`_Sv@_vOyVf{vD+91YfWpbr9A&4GOkR@B{Xr#eFnV7(PhTI(1Kx8*@C{eLhh@&0>3<wc2lQL8-uHzPyBkm1N$jKCy2=Bu%WFWdB)GR$QhHQ>8zH^Z6JiZ2zFrxr;&|>aty95dLRBP%x{91H*j+kPcIj@&WIvWt(J~gt%j3dZON%BjanrJQn+Gi9(8;8*kmZW_~Gue)zUC!5_Bc?Fj-)ASx0^?SxrLk7vb#k`RxMcSLT?X;e&OM#y7lcy9<P`vcbQo7VNDk)MTda!-7$_)z(Xmrf{3tNinpEDJLS3wV9l`==QDisoOa&z!nE}MGCuvn`dvnY^Rm9i>e}1u(0VQ0wte@#|^YHy)2HaAdVYyi@FwimNHZYmzQnHLwatEvgU^DG_VW(SMf>DYNJu7CKmd3Q>?VZnF3~?-qmSHP7keupPZhslKi9(ADwYE?GT#0U7E8G^6p>`2aK{8d5%o6(fDQq)uuR|gmK>O3HMF4?VP)__w0wXL=V?>3fdZ;4EFragk~e=XCFE;)=u>#>`vw>QDxHNc~O;uQGOqki0v0mOzmdAxCx|(d(`adZ|D>)CL?)qqv35WzTmVG7^dZf{BP~4hT6`~vT`9kZ>sg-4IcPLICIL099cjXNw+CU+<=4^4^(f|iSy_Rm$xg*e)$(izdky7(`VJsH;3o1drNZJ#B}iDRv<bB*MLrp*>KTS-@&e?lAWZ*5!PA5rRCEGC92BR|9skL#Um|h)JiHTCIE@8xsq~P4f^+|pf+8ltLALpw~eYSKNLa<o-%m50dLC!M)g~CzgXXWbg@<>wd)cz8nx>|4emjQ88j0Zq_Gl~Omd3A!ch_x5qcPeXvUHNU%}y0$+%XnyTbYN++cIz)lA)Hcw0j&H4dY9PcaL*>Sjh7og`WzB4=0`A#yLCEiyifZb79Lmu1GRDS+xZ`IK@jlwyjTP_)DITDF{OD?(X0M$)_Xm<{=gF2)MTJGzGN^nSlW4xL3Eok=Gj+Kg(AZ9}qe{gDD`weGdG{)BtO^?6VRv#R(=n)>t&$1;Lpc84+HZo|cCq|_Kg<f_CQu;0L|Ux*R84P%cI>KopJiN^~rFm_UjLAxmg8X%)vm(rwJ)tubq2Kj4J*Q8-h*0#mN+fFk_1Hp)=leA!^D>#V?hLN|JKwqJebQ|yWi9HPMnuOsKc9x~EhHSbK&Mza%XQVhKTELY1JR&EsaP7((wpU?>H{4Q8#K=MrYJbX%m3YGDAT>p<tmu$aYTm;~<TT9p!fGcRH!uDIwU0t$fWS=}WmvX0yDP5e-00-n8Ev`-LRqjGE}h{ZoTTL<$0G|46cKjC++2p5C2FIXNn41F)0qkNG?BBKreKs(OIRxYdxoXOM0wtaKcllfyviOvqEXlv(-e8)IK$tE5vtL2_fG`UO`0sq2xl%%3E|pD(4{PTi)z2jEhS+_E;@7r8p(K6`!*0aBhXu}q@8}=XU?PWw&(T^Z>5)Xz2280JXw_Ug?8CLGup%R`r*AG#>&Z=$#u~}9SJ)~%Uf@Re|7=d?lbmfH3$`<8JbV9?wx^Yg<;PY0Uok*N;mGhT^9&~-Fo&(VBcbeG(s1#{kjHr^V7hdgY;EI0BmbS*j^j#z5eSeLxv2Ly95jJbjfdxiE(K*?M_4`o~X|zcJ_d9k&rkvtY5HB6f99O*gvO#y5>MVGhrnUBoClN0<+z_7Ef4hWm6GU*B#$kllX#?QO)<g>bzaVU{?lYJ@(ZPDi%GqIq_XJ*!!B6_PYejb(a|l!8t}pK3YCd9ZylRQi`IH2w@AbA}N7n2-PG6nhR4E^NMkoU&Z8A`bt)_uAYc^o=jw|4eO*{2qA@n3@rL;@|f-KZ_e%q*27KlkmZ=f=KvD9yK}5C{J|hx4G=x70Lgk5=R3XwQKj`u(+^#rm8(UhdCgI+=7|V37Tj;o{qQbiQLHK}bR=i3!&sQqgvjN6qZO!lNK(}ZsZ}Sbw_jxOSNp1<IH#o-ceFvbZcxpQmBfn2R>)rFWaqHv6BQh9sjxtc5{PMx8QuT4OCgA53+6JK)(iy<DRhNn72QW#3Y-K`qas#?idrid8K7stix70eqybTyaUd(0Vd4O^8EjhkB_YyO+!b)TQ>7r8pSg@!qM^W3mPUJQzNl4QgXGX;q#F}0ZvlGj5JhCjmm(6!?cQqI*-leW^0nMx?Q5e!?Zkvvs$s8IybaSi1HJ$pn+jqywpK;tEb=$I`P>ww1swtlast&$Cbjwb`l~k$w$^F9?Wpvw3AdmC#)9r*lbrG71Hivt=gvrga?Jlm;<(Cs3;nFZdGBj0B6$=Ko+b!7kEgn-EG{V<PPz!Y6mIr2pl+B9{vwTIEP&Nk^?~%ZjE6t2a5YdJl~i!9vKXuj;~q8gdJRRZfJp;!ZLqB`HW}bO!g_B^il}5k^F?qik0==>p!Q2fgZIQ%UUR7s7|{Z>l!OiP3Pu)Td=tvLVX!9Oiq@!MX;Es?T?V|&u=+J64MOrL#ctLpb));4R&pcIX4;}Q5vX=T`KsVqmly0e;vpQjo?pxt-U`6Yf@Q6%W)$oA(Ar28Z<b8#$<wH-xf<jnu0el!f6a5MzsWGGfe;&Pq{=?Rk0m|sm%MZ9we{Di@?+CD<DmUbxV>1vp!}Q5uA0cL+y4L3KB=>eBZQPhs3U|I{*1QY7|Ma!#^$0P`^Lz2Gy4yiovhGOdC=9S(Enx6YOXS%YJG=w2A~uvbW?R*Jik=L#G)~Z(&=mlClb)QzpS=}zJxV4uJ0Q6?dFbizdHXhc0?k*p<mlYHh0vq`lCKuaS?2c35E^+L~#>rtmdj7G!aeQc@wqnmZ>U2<HjTEGVi+6bf|_duq!ez0^O~FJ#7O+ZJ4GqmpG<uHE{b8A8JQA@RS&R*{VKa6qYs|gnyzN+F&DN>9rC1wXk-AOh-p&9433`WpsnSIk0ah7(K!XI&fvo_a@9DVYQjIqR)<EhL<_ve@f{Wo1#URf%!<cv9BIJCJ!I8(7dwRy1gYqzG3b%H*Q|i5i2XLd4pT_SL=e<;H0J1*b0DrGp-vijcsd{@ajF$`gpXSsbl_;RB0xiHXp@LXXjUjR*SvH=*mjbwS5&*+VmX8uoA=YG((pRei-E8BYp5J3m5cBBw({RWH(#>w*SI+t_o6)SfGXC^WjjWbnDYYHIc4MKxGF}sn_eFqj=P$xSEDM%&(avMoUWjts2>Tyjq<Z<*T=DN}n?aRVj2kRtjCifx66f(d@!-jq_&rMO&-o{)tum6p#8VR*2a-OHC?(J;_IH2w*ahVtNy)QYE=6VW~km{AZwGfx!K)oJ6gP;1l*LBB?6+jO2&?3_sadly&Vox%^g$(aa?FXsJT`=`6m^x_;WWSbuA@W|y`xTIB$0_2Sg6FLk%a%!XyR&y~BCyuMF9I1Vb|a;6v)_Ivoac=(8yZE~1e!eaUDN8y(e{$_ajLz(|n!mF^<2Zwf(wj;R0_Fqp7w2FgyE}XAYj6X{5RzGCj5Lw63wzPMn<E>%K=p%<hCPB^bB`WwBh5c=xQA6d8Hnb}5lZ?{f4d@APf!l6DHj2UJ1Gc)mmb+Byn!+QTA_8C7Ob4a>GKpZX%)4J2!HV7zvG^9tE0%}>3PrKEK$8F_Wc#PD&yFAd%Nwe=Z_33!3(@1a1ggr1k{38+v?DAFkv~<1EJEpV+uRy#4OvbSnu16E66nViUY1|Mv!W_GhmykzR1xJIL+w9sEH{)df!jrkGDj6&bO<T3jWL?s2-5W0QM(~x20%uh>pe`)AF)zP#9iG_@5q6#NM&mop-FjcTxYO|(zwLgh-eqZ+F|8IUPFm>R``#73d^fc%q{_n&BTX)oZuE0NeSq5pijSKaz!rT*ma75Jwl3>g9FIXH8fl8_rPPkkwl$Uq!M(!Ods9v^&n)U825gceQ;a~qp$sKiW&Z);ZAHF!1>`ZeKGP66oeao0e_sqo;-xJ&FeqfAGX5STcO<y%+%|KETYxCWXt8_6Lx0A9nn69EhQ@p(w#~tO!?TZpQmu%=IR4NVwZ|MYf*5C&LEv~y;OM<cOX8S0(Y{G{#JKc2~q-Db<4@Ru>y}?y7A6VGre9*O1sjVGMS`$1bYiMD5f8w;M=agn<52i3ux*?!kfPBgE>3S@xXvSaH?#OL@Dv(+^{+r+@X}u=7k~F;0X*18sn;(2*!e}euJ9Y`OUZ?8ae8G(puLtLm$_9E%ZLK6cYNe+Eb+bX12$GQZMpGRknTWu4a+0v}T?5&8#nCShcQbQ&(Ws{{HUt{DL-hzXhVHQmAvE7!w4q&yGWpMW&A?%5OstT?;tC3ph5TeNliyCLF3-^uV4XS>$(?se~zIC&`bg@hhND+eg+qD{7bRBHG;rb>+S-_|dknOw4~ZZq)Zj%lNsXf_DA=O$Bbdif_ll6~cd~=6#FZWvtfUK-Ec5L!lj^uT?3Qy<bV!Q4{%Ka@|*K^B%A9eAqZW*>G5j?q6*HWjF4<NA#A?a@B-Bhon-!`Z`jUp;J}XvyjIne)<`;*SVF8YeU@=Hk9<}pYQasW0=iRmdNiPTJla*nJCGd3z!fM+hp8Cv@!F3MY;rtwu}zs3T}*A5FNnQm5S94(U*;CI4L0iKOD9#pE+4#Kv}%^_awR=+rt08vgxyFF+!A7+${Ex^L>Lx$Fy_|EVD^Yq<2EpIUd!lkiPIBinMc5Rq#t6l*_*a>O7ic=>YTY%M7&})MIYa82-W3d=hRMFQN>!8QjQK)@-s2EGi(N#ANBTjC48nS@`h30Nq(6zNm(^L8#n}yb+4gK|5#uvoh%#4BG6I9DagRaT(9mzqrz%afayRqG~~TA<H3(`v(+NWwVr)yrhK@<$u}tOIAi{okdh&T_>=jsp2x$%HKe@@C{XYdiZ#Q@2krk^m$ZX3jx<5Pai(&kNBXviN_L8N^v7XhM1|qx{NF9B13KeQTqIHXJHvHa~6ugznUnfd+t7iBO1eF?8}A%MrO3Mw;XJ{0~F<h#QaNR^v4`ttA%1apD~8=gdM0#_m!IqV+(lA=0;j37-HhpK84M;)JIYCdNrQQqZO#|SlsaQB^os*9kmnfoael-$RstV#1YbRC*iAjsTWsKSH_6)jc_`RgcBYuOMN3s<WZo4B!<8c`bJn5*`s1})j-+yV=?5<5GZSA)SV?!IX9=<`Uu!s=S02W&5|(Q;l<$_RHJXVsVsC$_>S~#5O}Bqh-Jy}17Gx6a9Ofis<TUUfqH!Iku%B(&n=0uHSebX2Yt)NJsrPXEU>W3y>v9g&aPa|^2aJ5FHXNd-#=s@WP%Zi=+QI0CG*AK#9iH4mNllccRpS6byi(vv8ugVP5Z4OlOEqHpHX>A8q?sdZ#k?}eCc<Ito8CK6<$`Uxm1Y;n=W`QcfHRs8rO6iKF7FfRVCB1HEtKz-06+i2v)?@>?|${qbKhd<7*UpaM4|<R>Kmi8vTE9-73d~(-!~@&jzK~pvGOlJ0|5kiSUm6Ty9=uC0I%URlUkY0T*2aYfoPLKBJccDbY}rB4}#WHSQ{j$RsAmI_0mABNd9GJKbbU;mtSDN)}O^u3Agbx%y|77E}eZYuEc!rEJ2MO2??%?Ol&Fbo{0uJj%!3e}q4;dAt~V`{Ju`Q|a$Ptks3SCO}nz{HE_3RM7P!F-ldcNiV3+4n*Z{THLZo=kS>7?M5t}N4YP7tb)s6fK}iIc$?Q4T72JQ?BzuYd;sjgYj}zBjxpD%1;*;gijHz6lgRvZ(kG!dkQtE%7FZK}T>CW0EG*+<jNf#2@jVbWrz(3l)rb={p<h7-pmgMIJxoO@5U-AkDvN({c>ebA+(8PCYU~Hcfi8Y&AoIcQd%qS!q8LqW)nGqj6?atP(m5r0*cF>GOS&rB3<Io31<>f%Tq-@s{k;>I=>F-+!A0BBaihd|Rqx)Q*zPB;9+=F7Mf$U~fXk2uy}rg@$CS{oDj<vc#|CQHWj&<C1&6`BMoH@<IU1!J(a^q%X=7qJB$6N?BdyN?t%nev%d4WJmi6rP_&9i7ThXH``46*#K+U_(z`n{W@g~W(Jp?1bUz77i7X6wGcyPFP@a^8ofs5)}QEeKORLsZvNqi^Fa`5M}YB67v>7ryHt~#vDb;IGaI(q7+0@g>Fhq1EWryD9{f`=*@@o`+aJl4bY_dH7n*J(Umcm4nQ@ccCR?)3Pe&IHc!zc0U4Xnm@Xp{pUs%m$ItCvMi$*PiJ{$FpJWu7AZlFNT77s<VDAS+?MOI>_fJW1{40U2%4Hcz6(8ygogB^WD+Oua{5#I1*p-o>ucU#K_S9`s>;(&*(}E2<jWK(Z}M33u$gZC0p$5?tUr-kU?b`z_p~KqQUE<li>XOlM|Rf$bsM1PCthVM^#CF&B{hDfvx@M>1}R(>h#uEdG^qo%movo`$0w~Fx5>918$b&TT{NSujp(q({q$!7MAK_)RZfyp7g65g7y=SPU&`A6K`C%7R2@1JIPGO7YD@Vpn6Vnj_V@5Gf=V7Pbc(|mB7wpi57AP*j0eNileQ`1(@xLdv8@;cdL%t8D)%WN~&*!s;pw}6!-fC^upT}(c2ofq8HwNe)RN49LNBcfu_hi&&Q(jPrWunua3P{Sizl!Dg<L?5#Z)m#cvxc$^OFm47M7K3|V-hwxeK&z%h!S-jJvY?^wd)Uy8-{>R7zVFv9ma&=B_r>e%G#iSd03ITkF8A3lafs$#-0`aGiTtMlQk@7Js;W9VjXu^wip!ha|~+l<ms#6jgZcYv$lbo>v(xW*5i6f7?@`*2)uU4@f$%~Mc*x&<j!g?Q{l_BCaS+++jvgVr4&@?+@uZFrVG{BKZuz?u<RHu`!uI*L?0aZNRRaWjAy4KxsiFdG>C-TUR5jB<XlD&Q51l>{_>c82LfqIjRa7*+FI@mr2%h~Z?`D2@k%S>B-Rn4eJ+vz4wq@%`#7kUsH8E81J1g+YHOe#qygaXCA@4M-8hhnxP;{kEO?C2hl~X45oM6SmA_uU9KgZ<gJ~Q63q?bU2v9<R$qv&~O7Q;rH-&+BBL9CA?&tj|?PjUvrG<27YiojbJZs3PZ!L>+cXxnWZbyPB&hGbWIDTZ_%%|QrZ$-XQ|L84A3SN6ntb1(}FZd5j%MH$b`rk3$!tY3-;Kg9Q&<hW@KDFPE1t|eGTq+ji+@;Yu2w^VHcQ&!zb(l^oIs(4q5Zet}-qOCDe+$_6Ia{_@E*7AiiQMFs0;LlIHXe%JW=B^Q>S?i{M-5%M4;1PV>c&*NO(crqP;6+4z-U70(2|=r(^?saG!xZhcV1tp{cx=^3#TbZ}?<rxMpK56hVdrkJk&dJNP=&iwvK&!XCI_}yh1X44}T6|H@ycXN9PD-Fm80T%2G0{pDK7X-NOLEwq@f~79*@C(g{w-J8o4!NS&`9I1Sj-C'
-
-
-def ensure_internal_engine() -> None:
-    """Installe automatiquement le moteur inclus dans cette application."""
-    PLAYER.parent.mkdir(parents=True, exist_ok=True)
-    engine_data = zlib.decompress(base64.b85decode(ENGINE_BUNDLE.encode("ascii")))
-
-    try:
-        current = PLAYER.read_bytes()
-    except OSError:
-        current = b""
-
-    if current != engine_data:
-        PLAYER.write_bytes(engine_data)
-        PLAYER.chmod(0o755)
-
-
-def find_script(video: Path) -> Path | None:
-    # Priorité au funscript ORIGINAL placé dans le même dossier que la vidéo.
-    candidates = [
-        video.with_suffix(".funscript"),
-        video.with_suffix(".vib.funscript"),
-        SCRIPT_DIR / f"{video.stem}.funscript",
-        SCRIPT_DIR / f"{video.stem}.vib.funscript",
-    ]
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate
-    return None
-
-
-def convertir_original_en_vibration_temporairement(
-    script: Path,
-    video: Path,
-    amplification_percent: float = 0.0,
-) -> Path:
-    """
-    Transforme le funscript linéaire en intensité de vibration par plateaux.
-
-    Le fichier généré est temporaire :
-      0 = arrêt, 1..100 = intensité de vibration.
-    L'intensité dépend de la vitesse du mouvement du funscript original.
-
-    Amplification :
-      0 %   = calcul normal (x1)
-      50 %  = environ x2
-      100 % = environ x3
-    """
-    amplification_percent = max(0.0, min(100.0, float(amplification_percent)))
-    amplification_factor = 1.0 + 2.0 * (amplification_percent / 100.0)
-
-    donnees = json.loads(script.read_text(encoding="utf-8-sig"))
-    actions_source = donnees.get("actions", [])
-    actions = []
-
-    for action in actions_source:
-        try:
-            at = max(0, int(action["at"]))
-            pos = max(0, min(100, int(action["pos"])))
-        except (KeyError, TypeError, ValueError):
-            continue
-        actions.append((at, pos))
-
-    actions.sort(key=lambda item: item[0])
-    if len(actions) < 2:
-        raise ValueError("Le funscript original contient moins de deux actions valides.")
-
-    # Éliminer les doublons de temps.
-    uniques = []
-    for action in actions:
-        if uniques and uniques[-1][0] == action[0]:
-            uniques[-1] = action
-        else:
-            uniques.append(action)
-
-    sortie = [{"at": 0, "pos": 0}]
-
-    def ajouter(at: int, pos: int) -> None:
-        element = {"at": max(0, int(at)), "pos": max(0, min(100, int(pos)))}
-        if sortie and sortie[-1]["at"] == element["at"]:
-            sortie[-1] = element
-        elif not sortie or sortie[-1] != element:
-            sortie.append(element)
-
-    for index in range(1, len(uniques)):
-        debut, pos_debut = uniques[index - 1]
-        fin, pos_fin = uniques[index]
-        duree = fin - debut
-        amplitude = abs(pos_fin - pos_debut)
-
-        if duree <= 0:
-            continue
-
-        # Une longue section presque immobile devient un arrêt réel.
-        if amplitude < 2 or (duree >= 2500 and amplitude < 8):
-            commande = 0
-        else:
-            vitesse = amplitude * 1000.0 / duree
-            vitesse_amplifiee = vitesse * amplification_factor
-            # Minimum suffisamment élevé pour démarrer réellement le Mowgli.
-            # L'amplification augmente la commande sans dépasser 100 %.
-            puissance = max(0.20, min(1.0, vitesse_amplifiee / 160.0))
-            commande = int(round(puissance * 100.0))
-
-        ajouter(debut, commande)
-        ajouter(fin, commande)
-
-    ajouter(uniques[-1][0], 0)
-
-    resultat = dict(donnees)
-    resultat["actions"] = sortie
-    resultat["inverted"] = False
-    resultat["range"] = 100
-    resultat["runtime_vibration_conversion"] = True
-    resultat["runtime_amplification_percent"] = amplification_percent
-    resultat["runtime_amplification_factor"] = amplification_factor
-
-    destination = Path(tempfile.gettempdir()) / (
-        f"vibration-runtime-{os.getpid()}-{video.stem}.vib.funscript"
-    )
-    destination.write_text(
-        json.dumps(resultat, ensure_ascii=False, separators=(",", ":")) + "\n",
-        encoding="utf-8",
-    )
-    return destination
-
-
-def natural_key(path: Path) -> list[object]:
-    return [
-        int(part) if part.isdigit() else part.casefold()
-        for part in re.split(r"(\d+)", path.name)
-    ]
-
-
-def script_candidates_for_deletion(video: Path, selected_script: Path | None) -> list[Path]:
-    """Retourne tous les scripts portant exactement le nom de la vidéo."""
-    folders = [
-        video.parent,
-        video.parent / "rotation",
-        video.parent / "Rotation",
-        video.parent / "VibrationScript",
-        SCRIPT_DIR,
-    ]
-    candidates: list[Path] = []
-    if selected_script is not None:
-        candidates.append(selected_script)
-    for folder in folders:
-        candidates.extend([
-            folder / f"{video.stem}.funscript",
-            folder / f"{video.stem}.vib.funscript",
-        ])
-
-    unique: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        try:
-            resolved = candidate.resolve()
-        except OSError:
-            resolved = candidate.absolute()
-        if resolved not in seen:
-            seen.add(resolved)
-            unique.append(candidate)
-    return unique
-
 
 class VibrationPlayerGUI(tk.Tk):
     def __init__(self) -> None:
@@ -335,8 +26,8 @@ class VibrationPlayerGUI(tk.Tk):
         self.minsize(680, 480)
         self.configure(bg=COLORS["bg"])
 
-        # Démarrer maximisé sous KDE/X11. Repli sur la taille de l'écran
-        # lorsque le gestionnaire de fenêtres ne prend pas -zoomed en charge.
+        
+        
         try:
             self.attributes("-zoomed", True)
         except tk.TclError:
@@ -608,13 +299,13 @@ class VibrationPlayerGUI(tk.Tk):
         )
 
     def build_ui(self) -> None:
-        # Zone défilable : aucun contrôle ne reste caché lorsque la mise à
-        # l'échelle KDE est élevée ou que la fenêtre est réduite.
+        
+        
         shell = ttk.Frame(self, style="Root.TFrame")
         self.ui_shell = shell
         shell.pack(fill="both", expand=True)
 
-        # Bande funscript toujours visible au bas de la fenêtre.
+        
         graph_frame = tk.Frame(
             shell,
             bg="#050609",
@@ -724,7 +415,7 @@ class VibrationPlayerGUI(tk.Tk):
         canvas.bind_all("<Button-4>", mousewheel)
         canvas.bind_all("<Button-5>", mousewheel)
 
-        # F11 bascule l'application en plein écran; Échap revient maximisé.
+        
         self.bind("<F11>", self.toggle_app_fullscreen)
         self.bind("<Escape>", self.leave_app_fullscreen)
 
@@ -1019,7 +710,7 @@ class VibrationPlayerGUI(tk.Tk):
         c.delete("all")
         w = max(c.winfo_width(), 2)
         h = max(c.winfo_height(), 2)
-        # Grille très visible, même avant le chargement d'un script.
+        
         for fraction in (0.25, 0.50, 0.75):
             y_grid = h * fraction
             c.create_line(
@@ -1138,7 +829,7 @@ class VibrationPlayerGUI(tk.Tk):
             except (OSError, ValueError, TypeError, json.JSONDecodeError):
                 pass
 
-        # La boucle continue même avant ou après une lecture.
+        
         self.after(80, self.update_graph_position)
 
     def add_scale(
@@ -1322,8 +1013,8 @@ class VibrationPlayerGUI(tk.Tk):
         self.current_video = video
         self.current_script = script
 
-        # Conversion automatique au lancement : la vitesse du mouvement
-        # du funscript devient une intensité de vibration 0..100.
+        
+        
         try:
             runtime_script = convertir_original_en_vibration_temporairement(
                 script,
@@ -1427,7 +1118,7 @@ class VibrationPlayerGUI(tk.Tk):
             self.set_status(self.t("Aucune vidéo actuelle à passer."), "warning")
             return
 
-        # Préparer les vidéos suivantes si aucune liste n'est active.
+        
         if not self.playlist_active:
             videos = sorted(
                 [
@@ -1607,7 +1298,7 @@ class VibrationPlayerGUI(tk.Tk):
                 self.set_status(self.t("Aucune vidéo suivante disponible."), "warning")
             return
 
-        # Le moteur retourne 20 uniquement lorsque MPV a atteint la vraie fin.
+        
         if code == 20:
             deleted_count = 0
 
@@ -1733,13 +1424,3 @@ class VibrationPlayerGUI(tk.Tk):
         except OSError:
             pass
         self.destroy()
-
-
-def main() -> int:
-    app = VibrationPlayerGUI()
-    app.mainloop()
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())

@@ -89,3 +89,49 @@ Experimental community-developed software. Hardware/firmware and Bluetooth compa
 This is an independent community project. It is not affiliated with, endorsed by, sponsored by, or officially supported by JoyHub or its manufacturers.
 
 Use the software and connected hardware at your own risk.
+
+## uv deployment
+
+The recommended deployment method is [`uv`](https://docs.astral.sh/uv/). The project uses the system Python so Tkinter remains provided by the Linux distribution.
+
+### Debian / Ubuntu
+
+```bash
+sudo apt update
+sudo apt install -y python3 python3-tk mpv bluetooth bluez
+```
+
+Install `uv` using the official installation method, then clone and synchronize the project:
+
+```bash
+git clone https://github.com/st3ph666/JoyHub-Melody-Player.git
+cd JoyHub-Melody-Player
+uv sync
+uv run python JoyHub-Melody-Player-v2.5.4.py
+```
+
+Do not run `uv sync` with `sudo`. Bluetooth access remains managed by the normal Linux user session and BlueZ.
+
+### Update an existing installation
+
+```bash
+git pull
+uv sync
+uv run python JoyHub-Melody-Player-v2.5.4.py
+```
+
+## Source architecture
+
+```text
+JoyHub-Melody-Player-v2.5.4.py  # Compatibility launcher
+src/joyhub_melody/
+├── __init__.py                 # Version metadata
+├── settings.py                 # Paths, UI strings, patterns and colors
+├── engine.py                   # Embedded BLE engine bundle installer
+├── funscript.py                # Funscript discovery and conversion helpers
+├── app.py                      # Tkinter application
+└── main.py                     # Application entry point
+```
+
+Source-code comments are maintained in **English only**. The graphical interface remains bilingual French / English.
+
