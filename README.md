@@ -110,6 +110,8 @@ uv sync
 uv run python JoyHub-Melody-Player-v2.5.4.py
 ```
 
+Python dependencies (`bleak` and `buttplug`) are installed automatically by `uv sync`.
+
 Do not run `uv sync` with `sudo`. Bluetooth access remains managed by the normal Linux user session and BlueZ.
 
 ### Update an existing installation

@@ -766,7 +766,7 @@ class VibrationPlayerGUI(tk.Tk):
             )
 
     def send_mpv_command(self, command: list) -> bool:
-        """Envoie une commande JSON IPC au MPV actuellement lancé."""
+
         if self.process is None or self.process.poll() is not None:
             self.set_status(self.t("Aucune vidéo en lecture."), "warning")
             return False
@@ -934,7 +934,7 @@ class VibrationPlayerGUI(tk.Tk):
 
 
     def test_pump(self) -> None:
-        """Lance un test direct sans vidéo et sans funscript."""
+
         if not PYTHON.is_file():
             messagebox.showerror(
                 self.t("Python introuvable"),
@@ -1185,7 +1185,7 @@ class VibrationPlayerGUI(tk.Tk):
             self.after(50, self.play_next_in_playlist)
 
     def launch_folder_playlist(self) -> None:
-        """Lit la vidéo choisie puis toutes les suivantes du même dossier."""
+
         selected = Path(self.video_path.get())
         if not selected.is_file():
             messagebox.showerror(self.t("Vidéo introuvable"), self.t("Choisis d’abord une vidéo valide."))
@@ -1243,7 +1243,7 @@ class VibrationPlayerGUI(tk.Tk):
         messagebox.showinfo(self.t("Terminé"), self.t("La lecture du dossier est terminée."))
 
     def delete_completed_files(self, video: Path, script: Path | None) -> list[str]:
-        """Supprime uniquement les fichiers correspondant exactement à la vidéo terminée."""
+
         deleted: list[str] = []
         errors: list[str] = []
 

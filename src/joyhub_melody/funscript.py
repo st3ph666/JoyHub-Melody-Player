@@ -26,18 +26,18 @@ def convertir_original_en_vibration_temporairement(
     video: Path,
     amplification_percent: float = 0.0,
 ) -> Path:
-    """
-    Transforme le funscript linéaire en intensité de vibration par plateaux.
 
-    Le fichier généré est temporaire :
-      0 = arrêt, 1..100 = intensité de vibration.
-    L'intensité dépend de la vitesse du mouvement du funscript original.
 
-    Amplification :
-      0 %   = calcul normal (x1)
-      50 %  = environ x2
-      100 % = environ x3
-    """
+
+
+
+
+
+
+
+
+
+
     amplification_percent = max(0.0, min(100.0, float(amplification_percent)))
     amplification_factor = 1.0 + 2.0 * (amplification_percent / 100.0)
 
@@ -123,7 +123,7 @@ def natural_key(path: Path) -> list[object]:
     ]
 
 def script_candidates_for_deletion(video: Path, selected_script: Path | None) -> list[Path]:
-    """Retourne tous les scripts portant exactement le nom de la vidéo."""
+
     folders = [
         video.parent,
         video.parent / "rotation",

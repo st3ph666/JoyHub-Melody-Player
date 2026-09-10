@@ -4,7 +4,8 @@ version = "2.5.4"
 description = "Linux BLE funscript player for JoyHub Melody"
 requires-python = ">=3.11"
 dependencies = [
-    "bleak>=0.22.0",
+    "bleak>=0.22",
+    "buttplug>=0.2",
 ]
 
 [tool.uv]
