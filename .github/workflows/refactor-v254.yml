@@ -14,6 +14,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Install Tkinter for validation
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
       - name: Finalize source cleanup
         run: python3 tools/finalize_v254.py
       - name: Compile modules
